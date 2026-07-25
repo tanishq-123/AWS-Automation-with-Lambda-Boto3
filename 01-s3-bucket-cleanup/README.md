@@ -71,15 +71,20 @@ Create a role (**S3CleanupRole**) with trust policy for `lambda.amazonaws.com`, 
 3. Go to the S3 console and confirm only the newer files remain.
 4. Re-run the test — it should now report "no objects older than threshold" since stale files are already gone.
 5. Once verified, edit the code to restore `AGE_THRESHOLD_DAYS = 30` for the final version.
-6. Screnshot sequence:
-   Before- screenshot #5
-   Execution of lambda- screenshot #6
-   After- screenshot #7
+
+### 6. Screenshot Sequence
+
+| Stage               | Screenshot    |
+| ------------------- | ------------- |
+| Before              | Screenshot #5 |
+| Execution of Lambda | Screenshot #6 |
+| After               | Screenshot #7 |
+
 7. Log events saved in cloudwatch
 
 ### 5. (Optional) Automate with EventBridge
 
-If you want this to run on a schedule instead of manually:
+To run this on a schedule instead of manually:
 
 1. **EventBridge → Rules → Create rule** → Schedule → e.g. `rate(1 day)`.
 2. Target: this Lambda function.
