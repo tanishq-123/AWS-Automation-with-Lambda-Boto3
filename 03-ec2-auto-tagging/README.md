@@ -112,19 +112,15 @@ _Rule `ec2_auto_tag` saved and **Enabled**, with the event pattern confirmed mat
 This is a common interview scenario because it demonstrates cross-service correlation:
 
 1. Make sure **CloudTrail** is enabled in the account/region (a management-events trail, which is on by default for the last 90 days even without a dedicated trail, via **Event history**).
-2. Add the `cloudtrail:LookupEvents` inline permission to the Lambda role (Step 1) — optionally, use IAM's **Generate policy** feature to derive the exact permissions the role actually used from its CloudTrail activity, as a sanity check against the hand-written policy.
 
-   ![IAM Generate policy from CloudTrail activity](./screenshots/Screenshot__10.png)
-   _IAM's "Generate policy" tool analyzing the last day of CloudTrail activity for `ec2-auto-tag-lambda-role` to cross-check the actual API calls made against the inline policy granted._
-
-3. In the Lambda, call `cloudtrail_client.lookup_events(LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": "RunInstances"}], MaxResults=20)`, parse the JSON `CloudTrailEvent` field / `Resources` list, pull the `Username`, and add it as the `Owner` tag.
-4. Enable the bonus path via environment variables:
+2. In the Lambda, call `cloudtrail_client.lookup_events(LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": "RunInstances"}], MaxResults=20)`, parse the JSON `CloudTrailEvent` field / `Resources` list, pull the `Username`, and add it as the `Owner` tag.
+3. Enable the bonus path via environment variables:
 
    ![Lambda environment variables - ENABLE_OWNER_LOOKUP](./screenshots/Screenshot__9.png)
    _`ENABLE_OWNER_LOOKUP=true` and `ENVIRONMENT_TAG_VALUE=dev` set on the Lambda to activate the CloudTrail lookup path._
 
-5. **Observation while testing:** CloudTrail hasn't always indexed the `RunInstances` event by the time the Lambda runs (eventual consistency — indexing lag of anywhere from a few seconds to a few minutes is normal). Rather than failing the whole function, the code falls back to `Owner=unknown` if the lookup comes back empty.
-6. To reduce (not eliminate) this lag's impact, a configurable delay was introduced via `CLOUDTRAIL_LOOKUP_DELAY_SECONDS`, which pauses before querying CloudTrail. For this testing round it was set to `60` seconds.
+4. **Observation while testing:** CloudTrail hasn't always indexed the `RunInstances` event by the time the Lambda runs (eventual consistency — indexing lag of anywhere from a few seconds to a few minutes is normal). Rather than failing the whole function, the code falls back to `Owner=unknown` if the lookup comes back empty.
+5. To reduce (not eliminate) this lag's impact, a configurable delay was introduced via `CLOUDTRAIL_LOOKUP_DELAY_SECONDS`, which pauses before querying CloudTrail. For this testing round it was set to `60` seconds.
 
    ![Lambda environment variables - CLOUDTRAIL_LOOKUP_DELAY_SECONDS added](./screenshots/Screenshot__13.png)
    _Environment variables updated to `CLOUDTRAIL_LOOKUP_DELAY_SECONDS=60`, `ENABLE_OWNER_LOOKUP=true`, `ENVIRONMENT_TAG_VALUE=dev`. (Lambda timeout was also raised well above 60s to accommodate the delay.)_
