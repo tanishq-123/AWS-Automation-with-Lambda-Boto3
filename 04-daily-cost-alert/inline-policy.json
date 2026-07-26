@@ -1,0 +1,17 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ReadCostExplorer",
+            "Effect": "Allow",
+            "Action": "ce:GetCostAndUsage",
+            "Resource": "*"
+        },
+        {
+            "Sid": "PublishToCostAlertsTopic",
+            "Effect": "Allow",
+            "Action": "sns:Publish",
+            "Resource": "arn:aws:sns:us-east-1:277385995709:aws-cost-alerts"
+        }
+    ]
+}
