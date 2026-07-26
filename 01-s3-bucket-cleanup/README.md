@@ -13,7 +13,7 @@ Manual trigger / EventBridge --> Lambda (Python 3.12, Boto3) --> S3 (list + dele
 ### 1. S3 Setup
 
 1. Go to **S3 console → Create bucket**.
-   - Bucket name: e.g. `tanishq-bucket-20260725`.
+   - Bucket name: `tanishq-bucket-20260725`.
    - Region: pick one close to you, keep it consistent with your Lambda region.
    - Leave "Block all public access" checked (default) — this bucket doesn't need public access.
 2. Upload several test files (`aws s3 cp` or drag-and-drop in console) — mix of a few files.
@@ -22,13 +22,16 @@ Manual trigger / EventBridge --> Lambda (Python 3.12, Boto3) --> S3 (list + dele
    - Upload a batch of files, wait a couple of minutes, then upload a fresh batch — the first batch is now "older" relative to the threshold.
    - Once you've confirmed deletion logic works, **set the threshold back to 30 days** for the final submission.
 
+![S3 bucket created](./screenshots/Screenshot__1.png)
+_Bucket `tanishq-bucket-20260725` created and first test object uploaded._
+
 ### 2. Lambda IAM Role
 
 Create a role (**S3CleanupRole**) with trust policy for `lambda.amazonaws.com`, and attach:
 
 **AWS managed policy:** `AWSLambdaBasicExecutionRole` (CloudWatch Logs)
 
-**Inline policy** (scoped to your bucket only):
+**Inline policy** (scoped to your bucket only — see [`S3CleanupPolicy.json`](./S3CleanupPolicy.json) for the exact document used):
 
 ```json
 {
@@ -41,7 +44,7 @@ Create a role (**S3CleanupRole**) with trust policy for `lambda.amazonaws.com`, 
       "Resource": "arn:aws:s3:::tanishq-bucket-20260725"
     },
     {
-      "Sid": "DeleteObjects",
+      "Sid": "DeleteObjectsInBucket",
       "Effect": "Allow",
       "Action": "s3:DeleteObject",
       "Resource": "arn:aws:s3:::tanishq-bucket-20260725/*"
@@ -50,37 +53,58 @@ Create a role (**S3CleanupRole**) with trust policy for `lambda.amazonaws.com`, 
 }
 ```
 
+![IAM role S3CleanupRole created](./screenshots/Screenshot__2.png)
+_`S3CleanupRole` created with `AWSLambdaBasicExecutionRole` and the `S3CleanupPolicy` inline policy attached, ready to be assigned as the Lambda's execution role._
+
 ### 3. Lambda Function
 
 1. Create a Lambda function: runtime **Python 3.12**, attach the role from step 2.
-2. Configure permissions to set execution role name as **S3CleanupRole** (that we created earlier), refer **screenshot #4**
-3. Set environment variables (**refer screenshot#3**):
-   - `BUCKET_NAME` = your bucket name
-   - `AGE_THRESHOLD_DAYS` = `30` (for testing we used timedelta(minutes=AGE_THRESHOLD_MINUTES))
+2. Configure permissions to set the execution role as **S3CleanupRole** (created above).
+
+   ![Lambda execution role attached](./screenshots/Screenshot__4.png)
+   _Lambda function `s3_cleanup` configured with `S3CleanupRole` as its execution role, with the resource summary confirming CloudWatch Logs permissions inherited from `AWSLambdaBasicExecutionRole`._
+
+3. Set environment variables:
+   - `BUCKET_NAME` = `tanishq-bucket-20260725`
+   - `AGE_THRESHOLD_DAYS` = `30` (for testing, temporarily lowered — see the `AGE_THRESHOLD_MINUTES` variable used below)
+
+   ![Lambda environment variables for testing](./screenshots/Screenshot__3.png)
+   _Environment variables set for a forced test run: `AGE_THRESHOLD_MINUTES=2` and `BUCKET_NAME=tanishq-bucket-20260725`._
+
 4. Paste the code from [`lambda/s3_cleanup.py`](lambda/s3_cleanup.py). It:
    1. Uses `paginator = s3.get_paginator("list_objects_v2")` and iterates **all pages** — never assumes a single page of results.
-   2. Compares each object's `LastModified` (already timezone-aware / UTC from Boto3) against `datetime.now(timezone.utc) - timedelta(days=AGE_THRESHOLD_DAYS)`.
+   2. Compares each object's `LastModified` (already timezone-aware / UTC from Boto3) against `datetime.now(timezone.utc) - timedelta(days=AGE_THRESHOLD_DAYS)` (swapped for `timedelta(minutes=AGE_THRESHOLD_MINUTES)` during testing).
    3. Batches keys older than the threshold and deletes them with `delete_objects` (up to 1000 keys per call, chunked if more).
    4. Prints the key and last-modified date of every deleted object to CloudWatch Logs.
-5. Set **Timeout** to at least 30–60 seconds if the bucket has many objects
+5. Set **Timeout** to at least 30–60 seconds if the bucket has many objects.
 
 ### 4. Testing
 
 1. Use the Lambda console **Test** button with an empty test event (`{}`) — this function doesn't need event data.
-2. Check the **CloudWatch Logs** output (or the returned execution result) for the list of deleted keys.
-3. Go to the S3 console and confirm only the newer files remain.
-4. Re-run the test — it should now report "no objects older than threshold" since stale files are already gone.
-5. Once verified, edit the code to restore `AGE_THRESHOLD_DAYS = 30` for the final version.
+2. Confirm the **before** state in S3: two objects present ahead of the test run.
 
-### 6. Screenshot Sequence
+   ![S3 bucket before cleanup](./screenshots/Screenshot__5.png)
+   _Bucket contains two objects before the test invocation: `1678892725472.jpeg` (older, uploaded 17:50:46) and `ec2.jpeg` (newer, uploaded 18:08:55)._
 
-| Stage               | Screenshot    |
-| ------------------- | ------------- |
-| Before              | Screenshot #5 |
-| Execution of Lambda | Screenshot #6 |
-| After               | Screenshot #7 |
+3. Run the test and check the returned execution result / CloudWatch Logs for the list of deleted keys.
 
-7. Log events saved in cloudwatch
+   ![Lambda test execution result](./screenshots/Screenshot__6.png)
+   _Test execution succeeded: `threshold_minutes: 2`, `deleted_count: 1`, `deleted_keys: ["1678892725472.jpeg"]` — the older object was correctly identified and deleted while the newer one was left alone._
+
+4. Go to the S3 console and confirm only the newer file remains.
+
+   ![S3 bucket after cleanup](./screenshots/Screenshot__7.png)
+   _Only `ec2.jpeg` remains in the bucket after cleanup — confirms the deletion logic correctly targeted only the object older than the threshold._
+
+5. Re-run the test — it should now report "no objects older than threshold" since stale files are already gone.
+6. Once verified, edit the code (or environment variable) to restore `AGE_THRESHOLD_DAYS = 30` for the final version.
+
+CloudWatch Logs for this test run are captured in [`logs/cloudwatchlogs.log`](./logs/cloudwatchlogs.log):
+
+```
+Deleted 1 object(s) older than 2 minutes(s):
+- 1678892725472.jpeg
+```
 
 ### 5. (Optional) Automate with EventBridge
 
